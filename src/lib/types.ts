@@ -653,7 +653,7 @@ export const DEFAULT_ROUTER9_PREFERENCES: Router9Preferences = {
 /** A named preset for delegated workers. A delegate call that names it gets exactly these values. */
 export type OrchestrationRole = {
   name: string
-  /** The worker's CLI. Antigravity runs workers only, never the orchestrator. */
+  /** The worker's CLI. */
   agent: 'codex' | 'claude' | 'antigravity'
   /** null runs the CLI's default model. */
   model: string | null
@@ -672,7 +672,7 @@ export type OrchestrationRole = {
    * The planner agent this row is for; absent serves any planner. A row for the planner's own agent
    * wins over the row for any with the same name.
    */
-  orchestrator?: 'claude' | 'codex'
+  orchestrator?: 'claude' | 'codex' | 'antigravity' | null
 }
 
 export type OrchestrationStrategy =
@@ -713,8 +713,8 @@ export type EffortClass = 'light' | 'standard' | 'deep'
 
 /** A quota condition: the named window must sit below `below` percent for the rule to fire. */
 export type QuotaGate = {
-  agent: 'claude' | 'codex'
-  /** Claude: 5h / 7d / 7d-Opus. Codex reads 'opus' as its secondary (weekly) window. */
+  agent: 'claude' | 'codex' | 'antigravity'
+  /** Claude: 5h / 7d / 7d-Opus. Codex uses weekly on 'opus'. Antigravity checks its Claude bucket on 'opus' or worst bucket otherwise. */
   window: 'short' | 'week' | 'opus'
   below: number
 }

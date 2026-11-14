@@ -55,7 +55,7 @@ const wholeSeconds = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_TIMEOUT_SECONDS
 
 /** A row's orchestrator: absent or null serves any planner. */
-const ORCHESTRATORS: readonly unknown[] = [undefined, null, 'claude', 'codex']
+const ORCHESTRATORS: readonly unknown[] = [undefined, null, 'claude', 'codex', 'antigravity']
 const SKILL_BACKENDS: readonly unknown[] = ['auto', 'skill', 'mcp']
 const SKILL_STRATEGIES: readonly unknown[] = [
   'auto',
@@ -158,7 +158,7 @@ const DELEGATE_KINDS: readonly unknown[] = [
   'docs',
 ]
 const EFFORT_CLASSES: readonly unknown[] = ['light', 'standard', 'deep']
-const GATE_AGENTS: readonly unknown[] = ['claude', 'codex']
+const GATE_AGENTS: readonly unknown[] = ['claude', 'codex', 'antigravity']
 const GATE_WINDOWS: readonly unknown[] = ['short', 'week', 'opus']
 const ROUTING_PRESET_IDS: readonly unknown[] = ['economy', 'balanced', 'performance', 'custom']
 const ON_BOTH_CRITICAL: readonly unknown[] = ['ask', 'run-cheapest', 'block']

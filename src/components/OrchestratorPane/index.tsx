@@ -851,7 +851,7 @@ export const OrchestratorPane = memo(function OrchestratorPane({
   const addPlanner = useCallback(() => {
     openModal('newTerminal', {
       projectId,
-      only: ['claude'],
+      only: ['claude', 'codex', 'antigravity'],
       titleKey: 'term.newPlannerTitle',
     })
   }, [openModal, projectId])

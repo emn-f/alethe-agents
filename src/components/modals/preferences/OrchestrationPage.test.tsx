@@ -167,8 +167,7 @@ describe('OrchestrationPage', { timeout: 20_000 }, () => {
     })
   })
 
-  // Antigravity runs workers only; the orchestrator stays Claude or Codex (#218).
-  it('offers Antigravity as the agent of a role but not as its orchestrator', () => {
+  it('offers Antigravity both as the agent and as the orchestrator of a role', () => {
     withRoles([reviewer])
     render(<OrchestrationPage />)
 
@@ -181,8 +180,10 @@ describe('OrchestrationPage', { timeout: 20_000 }, () => {
     })
     expect(screen.getByRole('switch', { name: 'Read-only for reviewer' })).toBeDisabled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Orchestrator for reviewer' }))
-    expect(screen.queryByRole('option', { name: 'Antigravity' })).toBeNull()
+    choose('Orchestrator for reviewer', 'Antigravity')
+    expect(orchestration().roles[0]).toMatchObject({
+      orchestrator: 'antigravity',
+    })
   })
 
   it('offers the approved Antigravity models and only the efforts each one takes', () => {

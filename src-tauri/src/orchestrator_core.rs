@@ -335,7 +335,7 @@ pub struct Role {
     /// The role to run instead while this one's provider is running out of quota (#268).
     #[serde(default)]
     pub fallback: Option<String>,
-    /// The planner agent this row is for ("claude" or "codex"); None serves any planner (#276).
+    /// The planner agent this row is for ("claude", "codex", or "antigravity"); None serves any planner (#276).
     #[serde(default)]
     pub orchestrator: Option<String>,
 }
@@ -369,7 +369,8 @@ fn default_on_both_critical() -> String {
 
 /// A quota condition on a routing rule: the named window of the named agent must sit below
 /// `below` percent for the rule to fire. `window` is "short" (5h), "week" (7d) or "opus"
-/// (Claude's 7d-Opus; Codex reads it as its secondary window).
+/// (Claude's 7d-Opus; Codex reads it as its secondary window; Antigravity matches a Claude/Opus
+/// bucket for "opus" and falls back to its worst bucket utilization `used`).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaGate {
@@ -1495,8 +1496,10 @@ fn delegate_kind_and_effort(
 }
 
 /// A gate reads the cached fitness snapshot the frontend pushes: the per-window table when it is
-/// there, else the worst window when it is the one named. A window Alethe has no reading for
-/// passes — a gate must never hold work back on a guess.
+/// there, else the worst window when it is the one named. Antigravity meters dynamic model buckets
+/// rather than `5h`/`week`/`opus`, so `opus` checks any `opus`/`claude` bucket first and falls
+/// back to overall `used`. A window Alethe has no reading for passes — a gate must never hold work
+/// back on a guess.
 fn gate_passes(fitness: &HashMap<String, Value>, gate: &QuotaGate) -> bool {
     let Some(snapshot) = fitness.get(&gate.agent) else {
         return true;
@@ -1507,21 +1510,45 @@ fn gate_passes(fitness: &HashMap<String, Value>, gate: &QuotaGate) -> bool {
         "opus" if gate.agent == "codex" => "week",
         other => other,
     };
+    let antigravity_used = || {
+        let bucket = if gate.window == "opus" {
+            snapshot
+                .get("windows")
+                .and_then(Value::as_object)
+                .and_then(|windows| {
+                    windows
+                        .iter()
+                        .filter(|(key, _)| {
+                            let lower = key.to_ascii_lowercase();
+                            lower.contains("opus") || lower.contains("claude")
+                        })
+                        .filter_map(|(_, value)| value.as_f64())
+                        .reduce(f64::max)
+                })
+        } else {
+            None
+        };
+        bucket.or_else(|| snapshot.get("used").and_then(Value::as_f64))
+    };
     let used = snapshot
         .get("windows")
         .and_then(|windows| windows.get(label))
         .and_then(Value::as_f64)
         .or_else(|| {
-            (snapshot.get("worst").and_then(Value::as_str) == Some(label))
-                .then(|| snapshot.get("used").and_then(Value::as_f64))
-                .flatten()
+            if gate.agent == "antigravity" {
+                antigravity_used()
+            } else {
+                (snapshot.get("worst").and_then(Value::as_str) == Some(label))
+                    .then(|| snapshot.get("used").and_then(Value::as_f64))
+                    .flatten()
+            }
         });
     used.is_none_or(|used| used < gate.below)
 }
 
-/// Whether the role runs Claude on an Opus-class model.
+/// Whether the role runs Claude or Antigravity on an Opus-class model.
 fn is_opus_role(role: &Role) -> bool {
-    role.agent == "claude"
+    matches!(role.agent.as_str(), "claude" | "antigravity")
         && role
             .model
             .as_deref()
@@ -4304,16 +4331,21 @@ fn dispatch_tool(
             // the existing approval channel answers a running worker's questions, not a routing
             // decision, so there is nobody to pause for here. A provider Alethe has no reading for
             // is not critical.
-            if matches!(agent.as_str(), "claude" | "codex") {
+            if matches!(agent.as_str(), "claude" | "codex" | "antigravity") {
+                const ORCHESTRATOR_AGENTS: [&str; 3] = ["claude", "codex", "antigravity"];
                 let routing = guard(&core.inner).routing.clone();
-                let other = if agent == "claude" { "codex" } else { "claude" };
                 let fitness = guard(&core.fitness);
                 let past = |name: &str| {
                     fitness
                         .get(name)
                         .is_some_and(|snapshot| past_threshold(snapshot, routing.critical_threshold))
                 };
-                if past(&agent) && past(other) {
+                let known: Vec<&str> = ORCHESTRATOR_AGENTS
+                    .iter()
+                    .copied()
+                    .filter(|name| fitness.contains_key(*name))
+                    .collect();
+                if past(&agent) && known.len() >= 2 && known.iter().all(|name| past(name)) {
                     let used = |name: &str| {
                         fitness
                             .get(name)
@@ -4323,13 +4355,14 @@ fn dispatch_tool(
                     };
                     match routing.on_both_critical.as_str() {
                         "block" => {
+                            let summary = known
+                                .iter()
+                                .map(|name| format!("{name} at {:.0}%", used(name)))
+                                .collect::<Vec<_>>()
+                                .join(", ");
                             return Err(format!(
-                                "both providers are past {:.0}% of quota ({} at {:.0}%, {} at {:.0}%); the routing settings say to block — wait for a window to reset or change onBothCritical",
+                                "both providers are past {:.0}% of quota ({summary}); the routing settings say to block — wait for a window to reset or change onBothCritical",
                                 routing.critical_threshold,
-                                agent,
-                                used(&agent),
-                                other,
-                                used(other),
                             ));
                         }
                         "run-cheapest" => {
@@ -5427,6 +5460,45 @@ mod restart_tests {
         core.set_agent_fitness("claude", json!({ "worst": "week", "used": 90, "rateLimited": false }));
         let (arguments, _) = routed(&core, call.clone()).expect("a match");
         assert_eq!(arguments["role"], json!("expert"), "opus is unknown here, so it passes");
+
+        // Antigravity gates read its Claude/Opus bucket for `opus` and fall back to `used` for general windows.
+        let agy_core = routing_core(json!({
+            "maxConcurrent": 4,
+            "defaultTimeoutSeconds": 900,
+            "roles": [
+                { "name": "agy-opus", "agent": "antigravity", "model": "claude-opus-5-5-high" },
+                { "name": "agy-flash", "agent": "antigravity", "model": "gemini-3.8-flash" },
+                { "name": "any", "agent": "codex" }
+            ],
+            "routing": { "rules": [
+                { "id": "r-agy-opus", "enabled": true, "kinds": [], "efforts": [], "gates": [{ "agent": "antigravity", "window": "opus", "below": 50 }], "role": "agy-opus" },
+                { "id": "r-agy-short", "enabled": true, "kinds": [], "efforts": [], "gates": [{ "agent": "antigravity", "window": "short", "below": 80 }], "role": "agy-flash" },
+                { "id": "r-any", "enabled": true, "kinds": [], "efforts": [], "gates": [], "role": "any" }
+            ]}
+        }));
+        agy_core.set_agent_fitness(
+            "antigravity",
+            json!({ "worst": "Gemini", "used": 65, "rateLimited": false,
+                    "windows": { "Claude": 40, "Gemini": 65 } }),
+        );
+        let (arguments, _) = routed(&agy_core, call.clone()).expect("a match");
+        assert_eq!(arguments["role"], json!("agy-opus"), "Claude bucket at 40% < 50");
+
+        agy_core.set_agent_fitness(
+            "antigravity",
+            json!({ "worst": "Gemini", "used": 65, "rateLimited": false,
+                    "windows": { "Claude": 55, "Gemini": 65 } }),
+        );
+        let (arguments, _) = routed(&agy_core, call.clone()).expect("a match");
+        assert_eq!(arguments["role"], json!("agy-flash"), "opus bucket 55% fails, short gate reads used=65% < 80");
+
+        agy_core.set_agent_fitness(
+            "antigravity",
+            json!({ "worst": "Gemini", "used": 85, "rateLimited": false,
+                    "windows": { "Claude": 55, "Gemini": 85 } }),
+        );
+        let (arguments, _) = routed(&agy_core, call).expect("a match");
+        assert_eq!(arguments["role"], json!("any"), "short gate falls back to used=85% >= 80");
     }
 
     #[test]
@@ -5470,22 +5542,30 @@ mod restart_tests {
                 "defaultTimeoutSeconds": 900,
                 "roles": [
                     { "name": "expert", "agent": "claude", "model": "claude-opus-4" },
+                    { "name": "agy-expert", "agent": "antigravity", "model": "claude-opus-5-5-high" },
                     { "name": "any", "agent": "codex" }
                 ],
                 "routing": {
                     "allowOpusOnDeep": allow,
                     "rules": [
-                        { "id": "r-expert", "enabled": true, "kinds": [], "efforts": [], "gates": [], "role": "expert" },
+                        { "id": "r-expert", "enabled": true, "kinds": ["code"], "efforts": [], "gates": [], "role": "expert" },
+                        { "id": "r-agy-expert", "enabled": true, "kinds": ["review"], "efforts": [], "gates": [], "role": "agy-expert" },
                         { "id": "r-any", "enabled": true, "kinds": [], "efforts": [], "gates": [], "role": "any" }
                     ]
                 }
             })
         };
-        let call = json!({ "tasks": ["x"], "kind": "code" });
-        let (arguments, _) = routed(&routing_core(settings(true)), call.clone()).expect("a match");
+        let claude_call = json!({ "tasks": ["x"], "kind": "code" });
+        let (arguments, _) = routed(&routing_core(settings(true)), claude_call.clone()).expect("a match");
         assert_eq!(arguments["role"], json!("expert"));
-        let (arguments, _) = routed(&routing_core(settings(false)), call.clone()).expect("a match");
-        assert_eq!(arguments["role"], json!("any"), "opus is off the rules' table");
+        let (arguments, _) = routed(&routing_core(settings(false)), claude_call).expect("a match");
+        assert_eq!(arguments["role"], json!("any"), "claude opus is off the rules' table");
+
+        let agy_call = json!({ "tasks": ["x"], "kind": "review" });
+        let (arguments, _) = routed(&routing_core(settings(true)), agy_call.clone()).expect("a match");
+        assert_eq!(arguments["role"], json!("agy-expert"));
+        let (arguments, _) = routed(&routing_core(settings(false)), agy_call).expect("a match");
+        assert_eq!(arguments["role"], json!("any"), "antigravity opus is off the rules' table");
     }
 
     #[test]
@@ -5575,10 +5655,12 @@ mod restart_tests {
         exhausted(&cheapest);
         let result = delegate(&cheapest).expect("runs anyway");
         let id = result["jobs"][0]["id"].as_str().expect("a job id");
-        let inner = guard(&cheapest.inner);
-        let note = inner.jobs[id].routing.as_ref().expect("a routing note");
-        assert_eq!(note["verdict"], json!("both-critical"));
-        assert_eq!(note["policy"], json!("run-cheapest"));
+        {
+            let inner = guard(&cheapest.inner);
+            let note = inner.jobs[id].routing.as_ref().expect("a routing note");
+            assert_eq!(note["verdict"], json!("both-critical"));
+            assert_eq!(note["policy"], json!("run-cheapest"));
+        }
 
         // The default ("ask") runs too; the planner hears it through the headroom hint.
         let asking = routing_core(json!({ "maxConcurrent": 4, "defaultTimeoutSeconds": 900 }));
@@ -5596,6 +5678,44 @@ mod restart_tests {
             json!({ "worst": "week", "used": 88, "rateLimited": false }),
         );
         delegate(&half_known).expect("claude unknown is not critical");
+
+        // When Antigravity still has room, block does not fire even if Claude and Codex are critical.
+        exhausted(&half_known);
+        half_known.set_agent_fitness(
+            "antigravity",
+            json!({ "worst": "Gemini", "used": 30, "rateLimited": false }),
+        );
+        delegate(&half_known).expect("antigravity still has headroom");
+
+        // When all three known providers pass threshold, delegating to Antigravity triggers policy too.
+        let temp_cwd = std::env::temp_dir().to_string_lossy().into_owned();
+        let delegate_agy = |core: &Core| {
+            let mut arguments = Map::new();
+            arguments.insert("tasks".into(), json!(["something"]));
+            arguments.insert("cwd".into(), json!(temp_cwd));
+            arguments.insert("agent".into(), json!("antigravity"));
+            call_tool(core, "alethe_delegate", &arguments, None)
+        };
+        let exhaust_all = |core: &Core| {
+            exhausted(core);
+            core.set_agent_fitness(
+                "antigravity",
+                json!({ "worst": "Gemini", "used": 91, "rateLimited": false }),
+            );
+        };
+
+        exhaust_all(&blocking);
+        let error = delegate_agy(&blocking).expect_err("all three critical blocks antigravity");
+        assert!(error.contains("antigravity at 91%"), "{error}");
+
+        exhaust_all(&cheapest);
+        let result = delegate_agy(&cheapest).expect("antigravity runs under run-cheapest");
+        let id = result["jobs"][0]["id"].as_str().expect("a job id");
+        let inner = guard(&cheapest.inner);
+        let note = inner.jobs[id].routing.as_ref().expect("a routing note");
+        assert_eq!(note["verdict"], json!("both-critical"));
+        assert_eq!(note["policy"], json!("run-cheapest"));
+        assert_eq!(note["agent"], json!("antigravity"));
     }
 
     #[test]

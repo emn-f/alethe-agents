@@ -368,7 +368,7 @@ export function RoutingSection() {
                       <Dropdown
                         value={gate.agent}
                         ariaLabel={t('prefs.routingRuleGateAgent')}
-                        options={(['claude', 'codex'] as QuotaGate['agent'][]).map((agent) => ({
+                        options={(['claude', 'codex', 'antigravity'] as QuotaGate['agent'][]).map((agent) => ({
                           value: agent,
                           label: agentOption(agent),
                         }))}

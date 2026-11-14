@@ -36,7 +36,7 @@ import styles from './NewTerminalModal.module.css'
 import { RowSelect, type RowSelectOption } from './RowSelect'
 import { WslPathPicker } from './WslPathPicker'
 
-const PLANNER_AGENTS: AgentType[] = ['claude', 'codex']
+const PLANNER_AGENTS: AgentType[] = ['claude', 'codex', 'antigravity']
 
 const BROWSE_OPTION = '__browse__'
 const UNGROUPED_GRID = '__ungrouped__'

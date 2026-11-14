@@ -224,6 +224,7 @@ describe('preference normalization', () => {
         roles: [
           row('executor', 'claude', 'first'),
           row('executor', 'codex'),
+          row('executor', 'antigravity'),
           row('executor'),
           row('executor', 'claude', 'second'),
           // null is the row for any orchestrator, already taken above.
@@ -237,6 +238,7 @@ describe('preference normalization', () => {
     expect(roles.map((role) => [role.name, role.orchestrator, role.model])).toEqual([
       ['executor', 'claude', 'first'],
       ['executor', 'codex', null],
+      ['executor', 'antigravity', null],
       ['executor', undefined, null],
     ])
     const saved = JSON.parse(JSON.stringify(preferences))
@@ -330,8 +332,8 @@ describe('preference normalization', () => {
     })
   })
 
-  // Antigravity worker roles (#218).
-  it('keeps an Antigravity worker role and drops what agy cannot enforce', () => {
+  // Antigravity roles (#218).
+  it('keeps an Antigravity worker and planner role and drops what agy cannot enforce', () => {
     const implementer = {
       name: 'implementer',
       agent: 'antigravity' as const,
@@ -341,6 +343,11 @@ describe('preference normalization', () => {
       timeoutSeconds: null,
       orchestrator: 'claude' as const,
     }
+    const lead = {
+      ...implementer,
+      name: 'lead',
+      orchestrator: 'antigravity' as const,
+    }
     const saved = normalizePreferences({
       ...DEFAULT_PREFERENCES,
       orchestration: {
@@ -349,14 +356,13 @@ describe('preference normalization', () => {
           implementer,
           // agy has no read-only mode, so this would run writable.
           { ...implementer, name: 'auditor', readOnly: true },
-          // The orchestrator stays Claude or Codex.
-          { ...implementer, name: 'lead', orchestrator: 'antigravity' as 'claude' },
+          lead,
         ],
       },
     })
 
-    expect(saved.orchestration.roles).toEqual([implementer])
-    expect(normalizePreferences(saved).orchestration.roles).toEqual([implementer])
+    expect(saved.orchestration.roles).toEqual([implementer, lead])
+    expect(normalizePreferences(saved).orchestration.roles).toEqual([implementer, lead])
   })
 
   it('hands off the full conversation by default and narrows an unknown scope', () => {

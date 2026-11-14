@@ -32,7 +32,11 @@ import { RoutingSection } from './RoutingSection'
 import { StrategyArchitecture } from './StrategyArchitecture'
 
 const AGENTS: OrchestrationRole['agent'][] = ['codex', 'claude', 'antigravity']
-const ORCHESTRATORS: NonNullable<OrchestrationRole['orchestrator']>[] = ['claude', 'codex']
+const ORCHESTRATORS: NonNullable<OrchestrationRole['orchestrator']>[] = [
+  'claude',
+  'codex',
+  'antigravity',
+]
 const SKILL_PROVIDERS: Array<{
   value: OrchestrationSkillSettings['conserveProvider']
   label: string

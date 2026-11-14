@@ -12,6 +12,19 @@ Notable user-facing changes to **Alethe** are documented here. The format is bas
 
 ### Added
 
+- **Antigravity as orchestration planner & routing participant.** Antigravity (`agy`) can now lead
+  orchestration sessions in addition to running as a delegated worker: pick **Antigravity** as the
+  Planner in **New session → Orchestration**, add it from an orchestration board, and scope roles
+  to it under **Preferences → Orchestration → Roles → Orchestrator**. When Orchestration is
+  enabled, launching or relaunching an Antigravity terminal writes
+  `<workspace>/.agents/mcp_config.json` with a cross-platform stdio-to-HTTP bridge carrying
+  `ALETHE_PLANNER`, so each Antigravity planner tab receives isolated `alethe_*` orchestration
+  tools, and provisions `<workspace>/.agents/hooks.json` (also when voice conversation hooks are
+  active) to forward `SessionStart`, `PreInvocation`, `PreToolUse`, `PostToolUse`, and `Stop`
+  events to Alethe's `/hook` listener—adopting conversation IDs live and mirroring Antigravity's
+  own `invoke_subagent` calls on the orchestration canvas; project-scope MCP inspection and project
+  skill installs for Antigravity also use `.agents/`. Routing quota gates, `allowOpusOnDeep`, and
+  `onBothCritical` checks now include Antigravity alongside Claude Code and Codex.
 - **Antigravity workers in orchestration.** The lead can delegate to Antigravity (`agy`) next to
   Claude Code and Codex, and a role in Preferences → Orchestration can run on it with the approved
   models: Claude Sonnet 5.5 (medium or high), Claude Opus 5.5 High, `gpt-oss-120b-medium` (fixed
@@ -20,9 +33,9 @@ Notable user-facing changes to **Alethe** are documented here. The format is bas
   on its own, runs only the exact commands allowed in the `alethe-worker` agy project, and a turn
   where agy denied a command ends as blocked instead of done. Follow-ups reuse the same process, a
   steer waits for the current turn, and each turn reports its own tokens and a diff that includes
-  new files. Read-only and approval requests are refused for it, and the orchestrator itself stays
-  Claude Code or Codex. With Antigravity usage reading on, its quota feeds the same headroom hints
-  and warnings, as one reading for the whole vendor
+  new files. Read-only and approval requests are refused for worker runs. With Antigravity usage
+  reading on, its quota feeds the same headroom hints and warnings, as one reading for the whole
+  vendor
   ([#218](https://github.com/Kc1t/alethe-agents/issues/218)).
 - **Voice plugin.** A new plugin in the catalogue, [Voice](https://github.com/Kc1t/alethe-voice),
   brings the voice conversation from #336 by @SrAmaral: talk to an agent tab, hear its progress and

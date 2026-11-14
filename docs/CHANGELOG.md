@@ -12,6 +12,18 @@ Notable user-facing changes to **Alethe** are documented here. The format is bas
 
 ### Added
 
+- **Antigravity workers in orchestration.** The lead can delegate to Antigravity (`agy`) next to
+  Claude Code and Codex, and a role in Preferences → Orchestration can run on it with the approved
+  models: Claude Sonnet 5.5 (medium or high), Claude Opus 5.5 High, `gpt-oss-120b-medium` (fixed
+  effort), and Gemini 3.8 Flash (medium or high), listed in vendor order (Anthropic, OpenAI,
+  Google). The worker runs headless in its workspace without the permission bypass: it edits files
+  on its own, runs only the exact commands allowed in the `alethe-worker` agy project, and a turn
+  where agy denied a command ends as blocked instead of done. Follow-ups reuse the same process, a
+  steer waits for the current turn, and each turn reports its own tokens and a diff that includes
+  new files. Read-only and approval requests are refused for it, and the orchestrator itself stays
+  Claude Code or Codex. With Antigravity usage reading on, its quota feeds the same headroom hints
+  and warnings, as one reading for the whole vendor
+  ([#218](https://github.com/Kc1t/alethe-agents/issues/218)).
 - **Voice plugin.** A new plugin in the catalogue, [Voice](https://github.com/Kc1t/alethe-voice),
   brings the voice conversation from #336 by @SrAmaral: talk to an agent tab, hear its progress and
   replies, answer permission prompts by voice, and follow along in the floating HUD. Its settings sit
@@ -607,6 +619,8 @@ Notable user-facing changes to **Alethe** are documented here. The format is bas
 
 ### Fixed
 
+- **A Claude worker's diff shows the files it created**, and it clears once the worker reverts its
+  changes instead of keeping the last one.
 - ai-memory installs accept Unix archives with a root directory entry, find manually installed
   binaries outside the app PATH, and avoid duplicating Claude Code capture hooks already configured.
 - **Light terminal contrast.** Light themes, including plugin themes, enforce a WCAG-AA contrast

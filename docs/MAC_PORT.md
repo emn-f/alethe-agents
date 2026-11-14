@@ -36,6 +36,9 @@ Mac synced through: `v1.7.0` (`80e44a3`)
 
 ## Unreleased
 
+- `pending` · `contract` · feat(orchestrator): add Antigravity (agy) workers and quota headroom
+  - Files: `src-tauri/src/orchestrator_core.rs`, `src/lib/orchestrationSettings.ts`, `src/lib/agentFitness.ts`
+  - Contract: `OrchestrationRole['agent']` in `projects.json` widens to `'codex' | 'claude' | 'antigravity'` (`readOnly` stays `false` for Antigravity and `orchestrator` stays `'claude' | 'codex'`); approved Antigravity models (`claude-sonnet-5-5`, `claude-opus-5-5-high`, `gpt-oss-120b-medium`, `gemini-3.8-flash`) and allowed efforts; `antigravityFitness` reports tightest bucket plus `windows` map to `orchestrator_set_agent_fitness`. Launches `agy` headless with `--project alethe-worker --mode accept-edits --sandbox` (refusing `readOnly` and approvals), queues steers for the next turn, and uses `worktree_diff` (including untracked files) for stream workers.
 - `pending` · `contract` · feat(terminal): preserve pane scroll and make Claude Code fullscreen rendering optional
   - Commit: Merge pull request #322 from MarkHiarley/fix/terminal-scroll-ownership
   - Also: `9135adde` fix(terminal): keep a pane's scroll with the reader; `8657a542` feat(terminal): make Claude Code's fullscreen renderer a preference; `0d1f31da` fix(terminal): close the gaps found porting #322
